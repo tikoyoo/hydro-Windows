@@ -34,41 +34,119 @@ if [[ ! -f "$INDEX_TS" ]]; then
   exit 1
 fi
 
-echo "==> 幂等修补 index.ts"
+echo "==> 幂等修补 index.ts（import / Route / apiRoutes 分步修补，避免因「路由已有」跳过 apiRoutes 白名单）"
 export INDEX_TS
-python3 <<PY
+python3 <<'PY'
 from pathlib import Path
 import os
+
 p = Path(os.environ["INDEX_TS"])
 text = p.read_text(encoding="utf-8")
-if "from './handlers/syncBootstrap'" in text and "sync_health" in text:
-    print("index.ts 已包含 sync 路由，跳过")
-else:
+orig = text
+changed = False
+
+def ensure_import():
+    global text, changed
+    if "./handlers/syncBootstrap'" in text or 'handlers/syncBootstrap' in text:
+        return
     a = "import { DomainUserStatsHandler } from './handlers/domainUser';"
-    b = a + "\nimport { SyncHealthHandler, SyncBootstrapHandler } from './handlers/syncBootstrap';"
-    if "syncBootstrap" not in text:
-        if a not in text:
-            raise SystemExit("未找到 domainUser import 锚点，请手工合并 index.ts")
-        text = text.replace(a, b, 1)
-    u = "  ctx.Route('api_domain_users', '/api/domainUsers', DomainUserStatsHandler);\n\n  // 添加 CORS 支持"
-    v = "  ctx.Route('api_domain_users', '/api/domainUsers', DomainUserStatsHandler);\n\n  ctx.Route('sync_health', '/api/sync/health', SyncHealthHandler);\n  ctx.Route('sync_bootstrap', '/api/sync/bootstrap', SyncBootstrapHandler);\n\n  // 添加 CORS 支持"
-    if "sync_health" not in text:
-        if u not in text:
-            raise SystemExit("未找到 api_domain_users / CORS 锚点，请手工合并 index.ts")
-        text = text.replace(u, v, 1)
-    x = "    'api_domain_users',\n  ];"
-    y = "    'api_domain_users',\n    'sync_health',\n    'sync_bootstrap',\n  ];"
-    if "'sync_health'" not in text.split("const apiRoutes", 1)[1].split("]", 1)[0]:
-        if x not in text:
-            raise SystemExit("未找到 apiRoutes 数组结尾锚点，请手工合并 index.ts")
-        text = text.replace(x, y, 1)
+    b = (
+        a
+        + "\nimport { SyncHealthHandler, SyncBootstrapHandler } from './handlers/syncBootstrap';"
+    )
+    if a not in text:
+        raise SystemExit("未找到 import DomainUserStatsHandler 锚点，请手工合并 index.ts")
+    text = text.replace(a, b, 1)
+    changed = True
+
+
+def ctx_route_mark(name):
+    return "ctx.Route('%s'" % name
+
+
+def ensure_routes():
+    global text, changed
+    if ctx_route_mark("sync_health") in text:
+        return
+    u = (
+        "  ctx.Route('api_domain_users', '/api/domainUsers', DomainUserStatsHandler);\n\n"
+        "  // 添加 CORS 支持"
+    )
+    v = (
+        "  ctx.Route('api_domain_users', '/api/domainUsers', DomainUserStatsHandler);\n\n"
+        "  ctx.Route('sync_health', '/api/sync/health', SyncHealthHandler);\n"
+        "  ctx.Route('sync_bootstrap', '/api/sync/bootstrap', SyncBootstrapHandler);\n\n"
+        "  // 添加 CORS 支持"
+    )
+    if u not in text:
+        raise SystemExit("未找到 api_domain_users / CORS 锚点（ctx.Route），请手工合并 index.ts")
+    text = text.replace(u, v, 1)
+    changed = True
+
+
+def ensure_api_routes():
+    global text, changed
+    key = "const apiRoutes"
+    if key not in text:
+        print(
+            "警告：未找到 const apiRoutes — 若为旧版插件，请手写将 sync_health/sync_bootstrap 加入匿名 JSON API 白名单（与 Hydro 源码中 /api JSON 门禁一致）",
+        )
+        return
+
+    i0 = text.index(key)
+    lb = text.index("[", i0)
+    depth = 0
+    close_idx = None
+    k = lb
+    while k < len(text):
+        c = text[k]
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                close_idx = k
+                break
+        k += 1
+    if close_idx is None:
+        raise SystemExit("const apiRoutes 数组未闭合，请检查 index.ts")
+
+    inner = text[lb + 1 : close_idx]
+    if "'sync_health'" in inner and "'sync_bootstrap'" in inner:
+        print("apiRoutes 已含 sync_health / sync_bootstrap")
+        return
+
+    addition = ""
+    if "'sync_health'" not in inner:
+        addition += "    'sync_health',\n"
+    if "'sync_bootstrap'" not in inner:
+        addition += "    'sync_bootstrap',\n"
+    if not addition:
+        return
+
+    text = text[:close_idx] + addition + text[close_idx:]
+    changed = True
+    print("已写入 apiRoutes 白名单: sync_health / sync_bootstrap（缺失项）")
+
+
+ensure_import()
+
+if ctx_route_mark("sync_health") not in text:
+    ensure_routes()
+else:
+    print("ctx.Route(sync_*) 已存在，跳过 Route 段落修补")
+
+ensure_api_routes()
+
+if text != orig:
     p.write_text(text, encoding="utf-8")
-    print("index.ts 已更新")
+    print("index.ts 已保存")
+else:
+    print("index.ts 未改动（或与预期一致无需保存）")
 PY
 
 echo "==> pm2 restart hydrooj（若进程名不同，请改脚本末尾）"
 pm2 restart hydrooj
 
 echo ""
-echo "完成。说明：Hydro 对 /api/* 常要求登录，匿名 curl /api/sync/health 可能仍返回 {\"url\":\"/login?...\"}，属预期。"
-echo "可在浏览器已登录状态下访问同路径，或带 Cookie 的 curl 验证。"
+echo "完成。匿名自检：curl -sS -H 'Accept: application/json' 'https://<主站>/api/sync/health' 期望含 \"ok\":true。"

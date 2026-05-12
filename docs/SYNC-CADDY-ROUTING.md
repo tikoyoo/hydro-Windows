@@ -47,7 +47,7 @@ curl -sS -H 'Accept: application/json' 'https://你的域名/api/sync/health'
 ```
 
 期望近似：`{"ok":true,"service":"hydrooj-plugin-sync","serverTime":...}`  
-（仍需 Hydro/插件正确处理 `SyncHealthHandler` 的 `noCheckPermView`；若仍为登录 JSON，再查插件 `index.ts` 与 `pm2` 是否加载最新构建。）
+（仍需 Hydro 插件 **Route 注册**正确，且 **`const apiRoutes` 白名单中包含 `sync_health` / `sync_bootstrap`**。若直连 `127.0.0.1:8888` 仍返回 `\"url\":\"/login\"`，多为 **apiRoutes 未补全**：在服务器 `git pull` 后重新执行 **`bash scripts/install-hydro-plugin-sync-bootstrap.sh`**，脚本会仅在缺失时补齐白名单—见仓库内脚本说明。）
 
 **bootstrap**（需登录 Cookie）：
 
