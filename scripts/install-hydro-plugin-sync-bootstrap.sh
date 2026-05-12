@@ -29,6 +29,17 @@ fi
 echo "==> 复制 handler: $SNIPPET -> $HANDLER_DST"
 install -m 0644 "$SNIPPET" "$HANDLER_DST"
 
+# Hydro addon 加载器只找根目录 index.ts / index.js，不看 package.json 的 main。
+# 若插件入口在 src/index.ts，必须在根目录创建 index.ts 重导出 apply。
+ROOT_INDEX="${PLUGIN_ROOT}/index.ts"
+if [[ ! -f "$ROOT_INDEX" ]]; then
+  echo "==> 创建根 index.ts（重导出 src/index.ts 的 apply）"
+  echo 'export { apply } from "./src/index";' > "$ROOT_INDEX"
+elif ! grep -q 'from.*src/index' "$ROOT_INDEX" 2>/dev/null; then
+  echo "==> 根 index.ts 存在但未重导出 src/index，追加 export"
+  echo 'export { apply } from "./src/index";' >> "$ROOT_INDEX"
+fi
+
 if [[ ! -f "$INDEX_TS" ]]; then
   echo "找不到: $INDEX_TS" >&2
   exit 1
