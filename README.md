@@ -23,3 +23,4 @@
 
 - `docs/SERVER-CHANGES-LOG.md` — 根据分析日志整理的 **2026-05-11 / 05-12** 服务器侧变更摘要  
 - `docs/RANKING-PATCH.md` — 全站排名 JSON 补丁与网关说明（路径已改为本仓库）
+- `docs/CADDY-HTTPS.md` — 主站 **HTTPS**（Let’s Encrypt）与 `caddy/Caddyfile.example`

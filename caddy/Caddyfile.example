@@ -1,0 +1,22 @@
+# 示例：为 Hydro 主站启用 HTTPS（Caddy 自动申请/续期 Let’s Encrypt 证书）
+#
+# 用法：
+#   1. 将 oj.antmaker.vip 的 DNS A 记录指向本机公网 IP
+#   2. 安全组 / 防火墙放行 80、443
+#   3. 合并进你现有 Caddy 配置后 reload（勿在未备份时整文件覆盖）
+#
+# 按你线上 Hydro / 网关实际端口修改 reverse_proxy。
+
+oj.antmaker.vip {
+	encode zstd gzip
+
+	# 8890 网关须收到完整路径 /api/domainUsers（不要用 handle_path 剥掉前缀）
+	@domainUsers path /api/domainUsers /api/domainUsers/*
+	handle @domainUsers {
+		reverse_proxy 127.0.0.1:8890
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8888
+	}
+}
