@@ -3,9 +3,7 @@
 # - 自定义网关 hydro-api（domainUsers 等）：8890
 # - /api/run：示例 3999
 #
-# ⚠️ 同步协议：`/api/sync/health`、`/api/sync/bootstrap` 由 **hydrooj-plugin-api** 挂在 **8888**，
-# 若把「整块 /api/*」都打到 8890，这两个路径永远不会进插件。
-# **必须在 `handle @gateway` 之前** 增加 `@sync` → `8888`。
+# 同步接口已改为 **`/extras/sync/*`**（见 `docs/SYNC-CADDY-ROUTING.md`），勿再依赖 `/api/sync/*`。
 #
 oj.antmaker.vip {
   encode zstd gzip
@@ -18,19 +16,13 @@ oj.antmaker.vip {
   }
   root * /root/.hydro/static
 
+  @gateway {
+    path /api/* /login /logout
+  }
   handle_path /api/run {
     reverse_proxy http://127.0.0.1:3999
   }
 
-  # 先于 @gateway：`/api/sync/*` → Hydro（插件路由）
-  @sync path /api/sync /api/sync/*
-  handle @sync {
-    reverse_proxy http://127.0.0.1:8888
-  }
-
-  @gateway {
-    path /api/* /login /logout
-  }
   handle @gateway {
     reverse_proxy http://127.0.0.1:8890
   }

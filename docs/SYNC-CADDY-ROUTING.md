@@ -1,61 +1,30 @@
-# 同步协议 P0：`/api/sync/*` 与 Caddy（8890 网关）
+# 同步协议 P0：路径说明（`/api/sync/...` 为何无效）
 
-插件 **`syncBootstrap.ts`** 注册在 **Hydro 主进程（常见 `127.0.0.1:8888`）**。  
-网关 **`hydro-api`（8890）** 只实现部分路径（例如 `domainUsers`）。
+## 根因（Hydro 路由）
 
-若 Caddy（或 Nginx）里使用类似规则：
+Hydro 内核会注册 **`/api/:op`**（`@hydrooj/framework` → `applyApiHandler`），其中 **`:op` 仅占路径中的一段**。  
+插件若注册 **`GET /api/sync/health`**，实际路径为三段（`api` / `sync` / `health`），**不匹配** `:op`，请求会落入其它兜底逻辑；匿名 **`Accept: application/json`** 时表现为 **`{"url":"/login?..."}`**，与 **`noCheckPermView`**、`apiRoutes` 白名单**无关**。（此前误判为插件白名单问题。）
 
-```caddyfile
-@gateway path /api/* /login /logout
-handle @gateway {
-  reverse_proxy http://127.0.0.1:8890
-}
-```
+插件 **`domainUsers`** 能工作是因为 **`/api/domainUsers`** 恰好是两段：**`/api` + `:op`**。
 
-则 **`/api/sync/health`**、**`/api/sync/bootstrap`** 会先被送进 **8890**，插件在处理链上不可用，易出现匿名访问返回 **`{"url":"/login?..."}`** 或非预期响应。
+## 正确做法（本仓库已定稿）
 
-## 修复（Caddy）
+在插件里使用 **不经 `/api/:op`** 劫持的路径前缀，例如：
 
-在 **`handle @gateway` 之前** 增加优先级更高的 **`@sync`**：
+- **`GET /extras/sync/health`** — 匿名自检（`SyncHealthHandler`，`noCheckPermView = true`）
+- **`GET /extras/sync/bootstrap`** — 需登录，`SyncBootstrapHandler` 内校验 uid
 
-```caddyfile
-@sync path /api/sync /api/sync/*
-handle @sync {
-  reverse_proxy http://127.0.0.1:8888
-}
+Caddy **`@gateway`（`/api/*` → 8890）不会影响** **`/extras/*`**：二者一般走 **`handle { reverse_proxy 8888 }`**。
 
-@gateway {
-  path /api/* /login /logout
-}
-handle @gateway {
-  reverse_proxy http://127.0.0.1:8890
-}
-```
+**无需**再给 `/api/sync` 单独写 Caddy 规则（旧文档中的 `@sync → 8888` 可作历史兼容保留，新版本以 **`/extras/...`** 为准）。
 
-然后：
-
-```bash
-cd /root/.hydro   # 或你的 Caddyfile 所在目录
-caddy validate --config ./Caddyfile
-pm2 restart caddy
-```
+对应代码片段：**`plugin/snippets/syncBootstrap.ts`**  
+安装脚本：**`scripts/install-hydro-plugin-sync-bootstrap.sh`**（会把旧 **`/api/sync/…`** **`index.ts`** 文案迁移成 **`/extras/...`**）
 
 ## 验证
 
 ```bash
-curl -sS -H 'Accept: application/json' 'https://你的域名/api/sync/health'
+curl -sS -H 'Accept: application/json' 'https://你的域名/extras/sync/health'
 ```
 
-期望近似：`{"ok":true,"service":"hydrooj-plugin-sync","serverTime":...}`  
-（仍需 Hydro 插件 **Route 注册**正确，且 **`const apiRoutes` 白名单中包含 `sync_health` / `sync_bootstrap`**。若直连 `127.0.0.1:8888` 仍返回 `\"url\":\"/login\"`，多为 **apiRoutes 未补全**：在服务器 `git pull` 后重新执行 **`bash scripts/install-hydro-plugin-sync-bootstrap.sh`**，脚本会仅在缺失时补齐白名单—见仓库内脚本说明。）
-
-**bootstrap**（需登录 Cookie）：
-
-```bash
-curl -sS -H 'Accept: application/json' -b '你的 Cookie' \
-  'https://你的域名/api/sync/bootstrap'
-```
-
-## 与本仓库文件的对应关系
-
-完整合并示例：**`caddy/Caddyfile.gateway-and-sync.example`**
+期望：`{"ok":true,"service":"hydrooj-plugin-sync","serverTime":...}`

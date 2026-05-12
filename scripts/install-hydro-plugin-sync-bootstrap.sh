@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# 在「已 clone hydro-Windows 仓库」的服务器上，于仓库根目录执行（需 root，默认插件路径 /root/hydrooj-plugin-api）：
-#   sudo bash scripts/install-hydro-plugin-sync-bootstrap.sh
+# 在「已 clone hydro-Windows 仓库」的服务器上，于仓库根目录执行（默认插件路径 /root/hydrooj-plugin-api）：
+#   bash scripts/install-hydro-plugin-sync-bootstrap.sh
 #
 # 可选环境变量：
 #   PLUGIN_ROOT=/root/hydrooj-plugin-api
@@ -34,7 +34,7 @@ if [[ ! -f "$INDEX_TS" ]]; then
   exit 1
 fi
 
-echo "==> 幂等修补 index.ts（import / Route / apiRoutes 分步修补，避免因「路由已有」跳过 apiRoutes 白名单）"
+echo "==> 修补 index.ts（迁移错误路径 import / Route）"
 export INDEX_TS
 python3 <<'PY'
 from pathlib import Path
@@ -44,6 +44,22 @@ p = Path(os.environ["INDEX_TS"])
 text = p.read_text(encoding="utf-8")
 orig = text
 changed = False
+
+def migrate_wrong_paths():
+    """旧版使用 /api/sync/health — Hydro 已占 /api/:op（单段），多段路径进不了插件 Route。"""
+    global text, changed
+    reps = (
+        ("'/api/sync/health'", "'/extras/sync/health'"),
+        ('"/api/sync/health"', "'/extras/sync/health'"),
+        ("'/api/sync/bootstrap'", "'/extras/sync/bootstrap'"),
+        ('"/api/sync/bootstrap"', "'/extras/sync/bootstrap'"),
+    )
+    for a, b in reps:
+        if a in text:
+            text = text.replace(a, b)
+            changed = True
+            print("migrate: %s -> %s" % (a, b))
+
 
 def ensure_import():
     global text, changed
@@ -74,8 +90,8 @@ def ensure_routes():
     )
     v = (
         "  ctx.Route('api_domain_users', '/api/domainUsers', DomainUserStatsHandler);\n\n"
-        "  ctx.Route('sync_health', '/api/sync/health', SyncHealthHandler);\n"
-        "  ctx.Route('sync_bootstrap', '/api/sync/bootstrap', SyncBootstrapHandler);\n\n"
+        "  ctx.Route('sync_health', '/extras/sync/health', SyncHealthHandler);\n"
+        "  ctx.Route('sync_bootstrap', '/extras/sync/bootstrap', SyncBootstrapHandler);\n\n"
         "  // 添加 CORS 支持"
     )
     if u not in text:
@@ -84,72 +100,27 @@ def ensure_routes():
     changed = True
 
 
-def ensure_api_routes():
-    global text, changed
-    key = "const apiRoutes"
-    if key not in text:
-        print(
-            "警告：未找到 const apiRoutes — 若为旧版插件，请手写将 sync_health/sync_bootstrap 加入匿名 JSON API 白名单（与 Hydro 源码中 /api JSON 门禁一致）",
-        )
-        return
-
-    i0 = text.index(key)
-    lb = text.index("[", i0)
-    depth = 0
-    close_idx = None
-    k = lb
-    while k < len(text):
-        c = text[k]
-        if c == "[":
-            depth += 1
-        elif c == "]":
-            depth -= 1
-            if depth == 0:
-                close_idx = k
-                break
-        k += 1
-    if close_idx is None:
-        raise SystemExit("const apiRoutes 数组未闭合，请检查 index.ts")
-
-    inner = text[lb + 1 : close_idx]
-
-    def qs(tok):
-        return ("'%s'" % tok) in inner or ('"%s"' % tok) in inner
-
-    # Hydro 外层 JSON 门禁可能按 ctx.Route 名（sync_health），也可能按 Handler 推导名（SyncHealth）。
-    TOKENS = ("sync_health", "sync_bootstrap", "SyncHealth", "SyncBootstrap")
-    if all(qs(t) for t in TOKENS):
-        print("apiRoutes 已含 sync 相关条目（蛇形 + Pascal）")
-        return
-
-    missing = [t for t in TOKENS if not qs(t)]
-    addition = ""
-    for t in missing:
-        addition += "    '%s',\n" % t
-
-    text = text[:close_idx] + addition + text[close_idx:]
-    changed = True
-    print("已补充 apiRoutes 白名单条目: %s" % ", ".join(missing))
-
-
+migrate_wrong_paths()
 ensure_import()
 
 if ctx_route_mark("sync_health") not in text:
     ensure_routes()
 else:
-    print("ctx.Route(sync_*) 已存在，跳过 Route 段落修补")
+    print("ctx.Route(sync_*) 已存在")
 
-ensure_api_routes()
+if "/extras/sync/health" not in text:
+    raise SystemExit("index.ts 中仍无 /extras/sync/health，请手动检查 Route 段落")
 
 if text != orig:
     p.write_text(text, encoding="utf-8")
     print("index.ts 已保存")
 else:
-    print("index.ts 未改动（或与预期一致无需保存）")
+    print("index.ts 未改动（已达预期路径）")
 PY
 
 echo "==> pm2 restart hydrooj（若进程名不同，请改脚本末尾）"
 pm2 restart hydrooj
 
 echo ""
-echo "完成。匿名自检：curl -sS -H 'Accept: application/json' 'https://<主站>/api/sync/health' 期望含 \"ok\":true。"
+echo "完成。匿名自检：curl -sS -H 'Accept: application/json' 'https://<主站>/extras/sync/health'"
+echo '期望 JSON 中含 "ok":true（extras 不走 /api/:op）。'

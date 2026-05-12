@@ -8,10 +8,9 @@
 
 ## 2026-05-12
 
-- **同步协议 P0**：插件增加 `SyncHealthHandler`（`GET /api/sync/health`）、`SyncBootstrapHandler`（`GET /api/sync/bootstrap`，需登录）；数据集合 **`edu_user_sync`**（按 uid）。
+- **同步协议 P0**：**`GET /extras/sync/health`**（匿名）、**`GET /extras/sync/bootstrap`**（需登录）；**勿用 `/api/sync/...`**——与 Hydro 内核 **`/api/:op`** 冲突（见 **`docs/SYNC-CADDY-ROUTING.md`**）。Mongo：**`edu_user_sync`**。
 - **前端**（在 `hydroforwindows` 仓库）：`syncApi.js`、`AuthContext` 在登录/恢复会话后拉取 bootstrap；登出清理缓存。
 - **安装**：使用本仓库 `scripts/install-hydro-plugin-sync-bootstrap.sh`（在服务器上 clone 本仓库后执行）。
 - **HTTPS**：Caddy 站点由 `:80` 改为 **`oj.antmaker.vip`**，云防火墙放行 **443**；详见 `docs/CADDY-HTTPS.md`。
-- **同步 + 8890 网关**：若 Caddy 将 **`/api/*` 整段**反代到 **8890**，须把 **`/api/sync/*` 先于该规则**送回 **8888**（Hydro 插件）；见 **`docs/SYNC-CADDY-ROUTING.md`** 与 **`caddy/Caddyfile.gateway-and-sync.example`**。
 
 *详细表格与命令见原日志 `hydroforwindows/docs/project-analysis-log.md` §19 起。*

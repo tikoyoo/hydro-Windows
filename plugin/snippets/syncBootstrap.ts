@@ -25,6 +25,13 @@ export class SyncHealthHandler extends Handler {
   }
 }
 
+/**
+ * ⚠️ 路径勿使用 `/api/sync/health`：
+ * Hydro 内核已注册 `GET /api/:op`（单段 op），`/api/sync/health` 为三段路径，匹配不到插件 Route，
+ * 会落入其它逻辑并返回匿名 JSON `{"url":"/login?..."}`。
+ * 使用无前缀 **`/extras/...`**，经 Caddy **默认反向代理 → Hydro 主端口**（通常 8888），**不经过** `@gateway → 8890`。
+ */
+
 /** 需登录：返回当前用户的 userDataVersion（不存在则初始化为 1） */
 export class SyncBootstrapHandler extends Handler {
   async get() {
@@ -66,8 +73,8 @@ export class SyncBootstrapHandler extends Handler {
 
 import { SyncHealthHandler, SyncBootstrapHandler } from './handlers/syncBootstrap';
 
-ctx.Route('sync_health', '/api/sync/health', SyncHealthHandler);
-ctx.Route('sync_bootstrap', '/api/sync/bootstrap', SyncBootstrapHandler);
+ctx.Route('sync_health', '/extras/sync/health', SyncHealthHandler);
+ctx.Route('sync_bootstrap', '/extras/sync/bootstrap', SyncBootstrapHandler);
 
 然后：cd /root/hydrooj-plugin-api && npm run build（若有）&& pm2 restart hydrooj
 */
