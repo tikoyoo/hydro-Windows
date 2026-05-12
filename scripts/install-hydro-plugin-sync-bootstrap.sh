@@ -83,7 +83,22 @@ def ensure_import():
     global text, changed
     if "SyncConnectionHandler" in text and "handlers/syncBootstrap" in text:
         return
-    # 旧版只有 SyncHealthHandler, SyncBootstrapHandler
+    import re
+
+    pat = re.compile(
+        r"^(\s*)import\s*\{\s*SyncHealthHandler\s*,\s*SyncBootstrapHandler\s*\}\s*from\s*['\"]\./handlers/syncBootstrap['\"]\s*;",
+        re.MULTILINE,
+    )
+    if pat.search(text):
+        text = pat.sub(
+            r"\1import { SyncHealthHandler, SyncBootstrapHandler, SyncConnectionHandler } from './handlers/syncBootstrap';",
+            text,
+            count=1,
+        )
+        changed = True
+        print("updated import: added SyncConnectionHandler (regex)")
+        return
+    # 旧版精确字符串
     old_import = "import { SyncHealthHandler, SyncBootstrapHandler } from './handlers/syncBootstrap';"
     new_import = "import { SyncHealthHandler, SyncBootstrapHandler, SyncConnectionHandler } from './handlers/syncBootstrap';"
     if old_import in text:
@@ -135,20 +150,40 @@ def ensure_connection():
     import re
 
     conn_line = "  ctx.Connection('sync_conn', '/edu-sync-conn', SyncConnectionHandler);"
-    # 允许缩进 / 引号差异
     pat = re.compile(
         r"^(\s*)ctx\.Route\(\s*['\"]sync_bootstrap['\"]\s*,\s*['\"]/edu-sync-bootstrap['\"]\s*,\s*SyncBootstrapHandler\s*\)\s*;",
         re.MULTILINE,
     )
     m = pat.search(text)
-    if not m:
-        print("warning: sync_bootstrap Route 未匹配，跳过 ctx.Connection（请手工合并 index.ts）")
+    if m:
+        text = text[:m.end()] + "\n" + conn_line + text[m.end():]
+        changed = True
+        print("inserted ctx.Connection (regex)")
         return
-    line_end = m.end()
-    insert = "\n" + conn_line
-    text = text[:line_end] + insert + text[line_end:]
-    changed = True
-    print("inserted ctx.Connection('sync_conn', '/edu-sync-conn', SyncConnectionHandler)")
+    # 回退：整行匹配（应对空格/分号差异）
+    lines = text.splitlines(keepends=True)
+    out = []
+    inserted = False
+    for line in lines:
+        out.append(line)
+        if inserted:
+            continue
+        if (
+            "ctx.Route" in line
+            and "sync_bootstrap" in line
+            and "edu-sync-bootstrap" in line
+            and "SyncBootstrapHandler" in line
+        ):
+            indent = re.match(r"^(\s*)", line)
+            ind = indent.group(1) if indent else "  "
+            out.append(ind + "ctx.Connection('sync_conn', '/edu-sync-conn', SyncConnectionHandler);\n")
+            inserted = True
+            changed = True
+            print("inserted ctx.Connection (line fallback)")
+    if inserted:
+        text = "".join(out)
+    else:
+        print("warning: 未找到 sync_bootstrap 的 ctx.Route，未插入 Connection，请检查 index.ts")
 
 
 migrate_all()
