@@ -130,21 +130,23 @@ def ensure_routes():
 
 def ensure_connection():
     global text, changed
-    if "ctx.Connection('sync_conn'" in text:
+    if "ctx.Connection('sync_conn'" in text or "ctx.Connection(\"sync_conn\"" in text:
         return
-    # 在 sync_bootstrap Route 之后、CORS 之前插入
-    anchor = "  ctx.Route('sync_bootstrap', '/edu-sync-bootstrap', SyncBootstrapHandler);"
-    if anchor not in text:
-        # 可能已经存在但格式略有不同，尝试另一种锚点
-        anchor2 = "ctx.Route('sync_bootstrap'"
-        if anchor2 not in text:
-            print("warning: sync_bootstrap route not found, skipping Connection registration")
-            return
-        return
-    insert = (
-        "\n  ctx.Connection('sync_conn', '/edu-sync-conn', SyncConnectionHandler);"
+    import re
+
+    conn_line = "  ctx.Connection('sync_conn', '/edu-sync-conn', SyncConnectionHandler);"
+    # 允许缩进 / 引号差异
+    pat = re.compile(
+        r"^(\s*)ctx\.Route\(\s*['\"]sync_bootstrap['\"]\s*,\s*['\"]/edu-sync-bootstrap['\"]\s*,\s*SyncBootstrapHandler\s*\)\s*;",
+        re.MULTILINE,
     )
-    text = text.replace(anchor, anchor + insert, 1)
+    m = pat.search(text)
+    if not m:
+        print("warning: sync_bootstrap Route 未匹配，跳过 ctx.Connection（请手工合并 index.ts）")
+        return
+    line_end = m.end()
+    insert = "\n" + conn_line
+    text = text[:line_end] + insert + text[line_end:]
     changed = True
     print("inserted ctx.Connection('sync_conn', '/edu-sync-conn', SyncConnectionHandler)")
 
