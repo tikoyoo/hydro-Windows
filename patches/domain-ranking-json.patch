@@ -1,0 +1,42 @@
+diff --git a/packages/hydrooj/src/handler/domain.ts b/packages/hydrooj/src/handler/domain.ts
+index 9036b18..e5e044f 100644
+--- a/packages/hydrooj/src/handler/domain.ts
++++ b/packages/hydrooj/src/handler/domain.ts
+@@ -33,9 +33,34 @@ class DomainRankHandler extends Handler {
+         const udict = await user.getList(domainId, dudocs.map((dudoc) => dudoc.uid));
+         const udocs = dudocs.map((i) => udict[i.uid]);
+         this.response.template = 'ranking.html';
+-        this.response.body = {
+-            udocs, upcount, ucount, page,
+-        };
++        /** JSON 请求走 `User.serialize`，会裁掉域统计；此处把 `domain.user` 与 serialize 结果合并，与网页模板同源。 */
++        if (this.request.json) {
++            const udocsJson = dudocs.map((dudoc) => {
++                const u = udict[dudoc.uid];
++                const base = u && typeof u.serialize === 'function' ? u.serialize(this) : {};
++                return {
++                    ...base,
++                    nAccept: dudoc.nAccept,
++                    nSubmit: dudoc.nSubmit,
++                    nLiked: dudoc.nLiked,
++                    rp: dudoc.rp,
++                    rank: dudoc.rank,
++                    level: dudoc.level,
++                    rpdelta: dudoc.rpdelta,
++                    rpInfo: dudoc.rpInfo,
++                    ...(typeof dudoc.displayName === 'string' && dudoc.displayName.trim()
++                        ? { displayName: dudoc.displayName }
++                        : {}),
++                };
++            });
++            this.response.body = {
++                udocs: udocsJson, upcount, ucount, page,
++            };
++        } else {
++            this.response.body = {
++                udocs, upcount, ucount, page,
++            };
++        }
+     }
+ }
+ 
