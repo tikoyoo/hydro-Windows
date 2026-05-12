@@ -7,8 +7,9 @@
  *
  * P1（WebSocket）：
  *   SyncConnectionHandler — WS /edu-sync-conn
- *   连接后监听 Hydro EventBus（record/change 等），
- *   当涉及当前用户时 $inc: { userDataVersion: 1 } 并推送 { type, userDataVersion, resources }。
+ *   连接后监听 Hydro EventBus（record/change、user/delcache、domain/delete-cache、
+ *   contest/add|edit|del、document/add|set 等），在当前连接用户相关时
+ *   $inc: { userDataVersion: 1 } 并推送 { type, userDataVersion, resources }。
  *
  * Mongo 集合 `edu_user_sync`：每条 `{ _id: 'uid_<数字>', uid, userDataVersion, updatedAt }`。
  */
@@ -16,6 +17,11 @@
 import { Handler, ConnectionHandler, db, subscribe } from 'hydrooj';
 
 const COL = 'edu_user_sync';
+
+/** Hydro `document.docType`，与 packages/hydrooj/src/model/document.ts 对齐 */
+const DOC_PROBLEM = 10;
+const DOC_CONTEST = 30;
+const DOC_TRAINING = 40;
 
 /** $inc userDataVersion 并返回新值；resources 标记哪些资源变了 */
 async function bumpVersion(uid: number, resources: Record<string, any> = {}): Promise<number> {
@@ -112,6 +118,17 @@ export class SyncConnectionHandler extends ConnectionHandler {
     this.noCheckPermView = true;
   }
 
+  /** bumpVersion + 推送 sync/version */
+  private async notify(resources: Record<string, any>) {
+    const userDataVersion = await bumpVersion(this.uid, resources);
+    this.send(JSON.stringify({
+      type: 'sync/version',
+      userDataVersion,
+      resources,
+      serverTime: Date.now(),
+    }));
+  }
+
   async prepare() {
     this.uid = Number(this.user?._id ?? this.user?.uid ?? 0);
     if (!Number.isFinite(this.uid) || this.uid <= 1) {
@@ -141,17 +158,106 @@ export class SyncConnectionHandler extends ConnectionHandler {
     const resources: Record<string, any> = { stats: 1 };
     if (rdoc._id) resources.record = String(rdoc._id);
     if (rdoc.contest) resources.contest = String(rdoc.contest);
-    const userDataVersion = await bumpVersion(this.uid, resources);
-    this.send(JSON.stringify({ type: 'sync/version', userDataVersion, resources, serverTime: Date.now() }));
+    await this.notify(resources);
+  }
+
+  /** 用户缓存失效（资料/权限变更等） */
+  @subscribe('user/delcache')
+  async onUserDelcache(content: string | true) {
+    if (content === true) {
+      await this.notify({ stats: 1, ranking: 1 });
+      return;
+    }
+    if (typeof content === 'string') {
+      const s = content.trim();
+      if (s.startsWith('{')) {
+        try {
+          const u = JSON.parse(s);
+          if (u && Number(u._id) === this.uid) await this.notify({ stats: 1, ranking: 1 });
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      if (this.domain?._id && s !== this.domain._id) return;
+      await this.notify({ stats: 1, ranking: 1 });
+    }
   }
 
   /** 竞赛 / 排名相关事件（domain 缓存刷新时可能涉及排名变动） */
   @subscribe('domain/delete-cache')
   async onDomainCacheChange(domainId: string) {
-    // 排名等统计在 domain 层面缓存，清除时推送 ranking 变化
-    const resources: Record<string, any> = { ranking: 1 };
-    const userDataVersion = await bumpVersion(this.uid, resources);
-    this.send(JSON.stringify({ type: 'sync/version', userDataVersion, resources, serverTime: Date.now() }));
+    if (this.domain?._id && domainId !== this.domain._id) return;
+    await this.notify({ ranking: 1 });
+  }
+
+  @subscribe('contest/add')
+  async onContestAdd(payload: any, id: any) {
+    if (payload && this.domain?._id && payload.domainId && payload.domainId !== this.domain._id) return;
+    const resources: Record<string, any> = { contest: String(id) };
+    if (payload?.rule === 'homework') resources.homework = String(id);
+    await this.notify(resources);
+  }
+
+  @subscribe('contest/edit')
+  async onContestEdit(tdoc: any) {
+    if (!tdoc?._id) return;
+    if (this.domain?._id && tdoc.domainId && tdoc.domainId !== this.domain._id) return;
+    const tid = String(tdoc._id);
+    const resources: Record<string, any> = { contest: tid };
+    if (tdoc?.rule === 'homework') resources.homework = tid;
+    await this.notify(resources);
+  }
+
+  @subscribe('contest/del')
+  async onContestDel(domainId: string, tid: any) {
+    if (this.domain?._id && domainId !== this.domain._id) return;
+    await this.notify({ contest: String(tid) });
+  }
+
+  @subscribe('document/set')
+  async onDocumentSet(domainId: string, docType: number, docId: any) {
+    if (this.domain?._id && domainId !== this.domain._id) return;
+    if (docType === DOC_CONTEST) {
+      await this.notify({
+        contest: String(docId),
+        homework: String(docId),
+      });
+      return;
+    }
+    if (docType === DOC_TRAINING) {
+      await this.notify({ course: String(docId) });
+      return;
+    }
+    if (docType === DOC_PROBLEM) {
+      await this.notify({ stats: 1, problem: String(docId) });
+      return;
+    }
+    await this.notify({ stats: 1 });
+  }
+
+  @subscribe('document/add')
+  async onDocumentAdd(doc: any) {
+    if (!doc) return;
+    if (this.domain?._id && doc.domainId && doc.domainId !== this.domain._id) return;
+    const docType = Number(doc.docType);
+    const rawId = doc.docId != null ? doc.docId : doc._id;
+    if (docType === DOC_CONTEST) {
+      await this.notify({
+        contest: String(rawId),
+        homework: String(rawId),
+      });
+      return;
+    }
+    if (docType === DOC_TRAINING) {
+      await this.notify({ course: String(rawId) });
+      return;
+    }
+    if (docType === DOC_PROBLEM) {
+      await this.notify({ stats: 1, problem: String(rawId) });
+      return;
+    }
+    await this.notify({ stats: 1 });
   }
 
   async cleanup() {
