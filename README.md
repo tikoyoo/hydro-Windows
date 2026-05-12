@@ -23,4 +23,7 @@
 
 - `docs/SERVER-CHANGES-LOG.md` — 根据分析日志整理的 **2026-05-11 / 05-12** 服务器侧变更摘要  
 - `docs/RANKING-PATCH.md` — 全站排名 JSON 补丁与网关说明（路径已改为本仓库）
-- `docs/CADDY-HTTPS.md` — 主站 **HTTPS**（Let’s Encrypt）与 `caddy/Caddyfile.example`
+- `docs/CADDY-HTTPS.md` — 主站 **HTTPS**（Let’s Encrypt）  
+- `docs/SYNC-CADDY-ROUTING.md` — **`/api/sync/*` 必须反代到 8888**，勿被 8890 网关「整块 /api」吞掉  
+- `caddy/Caddyfile.example` — 极简  
+- `caddy/Caddyfile.gateway-and-sync.example` — **生产合并模板**（8890 + 同步 + HTTPS 站点名）

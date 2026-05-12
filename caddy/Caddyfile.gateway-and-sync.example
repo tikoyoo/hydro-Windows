@@ -1,0 +1,49 @@
+# 与「`/root/.hydro` + PM2 caddy」生产配置对齐的示例：
+# - Hydro 主体：8888
+# - 自定义网关 hydro-api（domainUsers 等）：8890
+# - /api/run：示例 3999
+#
+# ⚠️ 同步协议：`/api/sync/health`、`/api/sync/bootstrap` 由 **hydrooj-plugin-api** 挂在 **8888**，
+# 若把「整块 /api/*」都打到 8890，这两个路径永远不会进插件。
+# **必须在 `handle @gateway` 之前** 增加 `@sync` → `8888`。
+#
+oj.antmaker.vip {
+  encode zstd gzip
+  log {
+    output file /data/access.log {
+      roll_size 1gb
+      roll_keep_for 72h
+    }
+    format json
+  }
+  root * /root/.hydro/static
+
+  handle_path /api/run {
+    reverse_proxy http://127.0.0.1:3999
+  }
+
+  # 先于 @gateway：`/api/sync/*` → Hydro（插件路由）
+  @sync path /api/sync /api/sync/*
+  handle @sync {
+    reverse_proxy http://127.0.0.1:8888
+  }
+
+  @gateway {
+    path /api/* /login /logout
+  }
+  handle @gateway {
+    reverse_proxy http://127.0.0.1:8890
+  }
+
+  @static {
+    file {
+      try_files {path}
+    }
+  }
+  handle @static {
+    file_server
+  }
+  handle {
+    reverse_proxy http://127.0.0.1:8888
+  }
+}

@@ -12,7 +12,10 @@ Caddy 对「仅写主机名、不写 `:80`」的站点块默认启用 **TLS**，
 
 ## 2. 配置内容
 
-本仓库示例：**`caddy/Caddyfile.example`**
+本仓库示例：
+
+- **`caddy/Caddyfile.example`** — 极简（domainUsers→8890，其余→8888）。
+- **`caddy/Caddyfile.gateway-and-sync.example`** — 与 **`/root/.hydro` 生产模板**一致：含 **`/api/run`**、**`@gateway`→8890**、以及 **`@sync`→8888**（同步协议必选）。
 
 要点：
 
