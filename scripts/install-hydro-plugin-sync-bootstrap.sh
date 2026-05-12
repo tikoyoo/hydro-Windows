@@ -112,21 +112,24 @@ def ensure_api_routes():
         raise SystemExit("const apiRoutes 数组未闭合，请检查 index.ts")
 
     inner = text[lb + 1 : close_idx]
-    if "'sync_health'" in inner and "'sync_bootstrap'" in inner:
-        print("apiRoutes 已含 sync_health / sync_bootstrap")
+
+    def qs(tok):
+        return ("'%s'" % tok) in inner or ('"%s"' % tok) in inner
+
+    # Hydro 外层 JSON 门禁可能按 ctx.Route 名（sync_health），也可能按 Handler 推导名（SyncHealth）。
+    TOKENS = ("sync_health", "sync_bootstrap", "SyncHealth", "SyncBootstrap")
+    if all(qs(t) for t in TOKENS):
+        print("apiRoutes 已含 sync 相关条目（蛇形 + Pascal）")
         return
 
+    missing = [t for t in TOKENS if not qs(t)]
     addition = ""
-    if "'sync_health'" not in inner:
-        addition += "    'sync_health',\n"
-    if "'sync_bootstrap'" not in inner:
-        addition += "    'sync_bootstrap',\n"
-    if not addition:
-        return
+    for t in missing:
+        addition += "    '%s',\n" % t
 
     text = text[:close_idx] + addition + text[close_idx:]
     changed = True
-    print("已写入 apiRoutes 白名单: sync_health / sync_bootstrap（缺失项）")
+    print("已补充 apiRoutes 白名单条目: %s" % ", ".join(missing))
 
 
 ensure_import()
