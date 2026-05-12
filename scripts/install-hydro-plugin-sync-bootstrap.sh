@@ -81,17 +81,27 @@ def migrate_all():
 
 def ensure_import():
     global text, changed
-    if "./handlers/syncBootstrap'" in text or 'handlers/syncBootstrap' in text:
+    if "SyncConnectionHandler" in text and "handlers/syncBootstrap" in text:
         return
+    # 旧版只有 SyncHealthHandler, SyncBootstrapHandler
+    old_import = "import { SyncHealthHandler, SyncBootstrapHandler } from './handlers/syncBootstrap';"
+    new_import = "import { SyncHealthHandler, SyncBootstrapHandler, SyncConnectionHandler } from './handlers/syncBootstrap';"
+    if old_import in text:
+        text = text.replace(old_import, new_import, 1)
+        changed = True
+        print("updated import: added SyncConnectionHandler")
+        return
+    # 全新插入
     a = "import { DomainUserStatsHandler } from './handlers/domainUser';"
     b = (
         a
-        + "\nimport { SyncHealthHandler, SyncBootstrapHandler } from './handlers/syncBootstrap';"
+        + "\nimport { SyncHealthHandler, SyncBootstrapHandler, SyncConnectionHandler } from './handlers/syncBootstrap';"
     )
     if a not in text:
         raise SystemExit("未找到 import DomainUserStatsHandler 锚点，请手工合并 index.ts")
     text = text.replace(a, b, 1)
     changed = True
+    print("inserted import: SyncHealthHandler, SyncBootstrapHandler, SyncConnectionHandler")
 
 
 def ctx_route_mark(name):
@@ -118,11 +128,34 @@ def ensure_routes():
     changed = True
 
 
+def ensure_connection():
+    global text, changed
+    if "ctx.Connection('sync_conn'" in text:
+        return
+    # 在 sync_bootstrap Route 之后、CORS 之前插入
+    anchor = "  ctx.Route('sync_bootstrap', '/edu-sync-bootstrap', SyncBootstrapHandler);"
+    if anchor not in text:
+        # 可能已经存在但格式略有不同，尝试另一种锚点
+        anchor2 = "ctx.Route('sync_bootstrap'"
+        if anchor2 not in text:
+            print("warning: sync_bootstrap route not found, skipping Connection registration")
+            return
+        return
+    insert = (
+        "\n  ctx.Connection('sync_conn', '/edu-sync-conn', SyncConnectionHandler);"
+    )
+    text = text.replace(anchor, anchor + insert, 1)
+    changed = True
+    print("inserted ctx.Connection('sync_conn', '/edu-sync-conn', SyncConnectionHandler)")
+
+
 migrate_all()
 ensure_import()
 
 if ctx_route_mark("sync_health") not in text:
     ensure_routes()
+
+ensure_connection()
 
 if "/edu-sync-health" not in text:
     raise SystemExit("index.ts 仍未出现 /edu-sync-health，请检查 ctx.Route(sync_health, ...)")
