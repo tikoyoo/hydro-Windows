@@ -3,7 +3,7 @@
 # - 自定义网关 hydro-api（domainUsers 等）：8890
 # - /api/run：示例 3999
 #
-# 同步接口已改为 **`/extras/sync/*`**（见 `docs/SYNC-CADDY-ROUTING.md`），勿再依赖 `/api/sync/*`。
+# 同步接口定稿 **`/edu-sync-health`**、**`/edu-sync-bootstrap`**（见 `docs/SYNC-CADDY-ROUTING.md`），勿再依赖 `/api/sync/*`。
 #
 oj.antmaker.vip {
   encode zstd gzip

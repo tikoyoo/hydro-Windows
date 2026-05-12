@@ -12,9 +12,19 @@ import { Handler, db } from 'hydrooj';
 
 const COL = 'edu_user_sync';
 
-/** 无需登录：给运维 / 前置检查用（勿暴露敏感信息） */
+/**
+ * 匿名健康检查。
+ * Hydro 在 handler/create/http 对 Guest 会先 `checkPerm(PERM_VIEW)`；
+ * 仅用 class field 个别编译/加载链下可能未带上，故在构造函数里再写一次。
+ * 勿使用 `/api/sync/health`：`/api/:op` 为单段 op，多段路径匹配不到本 Route。
+ */
 export class SyncHealthHandler extends Handler {
   noCheckPermView = true;
+
+  constructor(context: any, cordisCtx: any) {
+    super(context, cordisCtx);
+    this.noCheckPermView = true;
+  }
 
   async get() {
     this.response.body = {
@@ -26,14 +36,17 @@ export class SyncHealthHandler extends Handler {
 }
 
 /**
- * ⚠️ 路径勿使用 `/api/sync/health`：
- * Hydro 内核已注册 `GET /api/:op`（单段 op），`/api/sync/health` 为三段路径，匹配不到插件 Route，
- * 会落入其它逻辑并返回匿名 JSON `{"url":"/login?..."}`。
- * 使用无前缀 **`/extras/...`**，经 Caddy **默认反向代理 → Hydro 主端口**（通常 8888），**不经过** `@gateway → 8890`。
+ * 需在已登录态才返回 userDataVersion；未登录仍应返回 JSON 401，而不是整站登录跳转。
+ * 因此对 Guest 也要 `noCheckPermView`，在 get() 内自行判断 uid。
  */
-
-/** 需登录：返回当前用户的 userDataVersion（不存在则初始化为 1） */
 export class SyncBootstrapHandler extends Handler {
+  noCheckPermView = true;
+
+  constructor(context: any, cordisCtx: any) {
+    super(context, cordisCtx);
+    this.noCheckPermView = true;
+  }
+
   async get() {
     const uid = Number(this.user?._id ?? this.user?.uid ?? 0);
     if (!Number.isFinite(uid) || uid <= 1) {
@@ -73,8 +86,8 @@ export class SyncBootstrapHandler extends Handler {
 
 import { SyncHealthHandler, SyncBootstrapHandler } from './handlers/syncBootstrap';
 
-ctx.Route('sync_health', '/extras/sync/health', SyncHealthHandler);
-ctx.Route('sync_bootstrap', '/extras/sync/bootstrap', SyncBootstrapHandler);
+ctx.Route('sync_health', '/edu-sync-health', SyncHealthHandler);
+ctx.Route('sync_bootstrap', '/edu-sync-bootstrap', SyncBootstrapHandler);
 
 然后：cd /root/hydrooj-plugin-api && npm run build（若有）&& pm2 restart hydrooj
 */

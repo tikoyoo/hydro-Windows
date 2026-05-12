@@ -8,7 +8,7 @@
 
 ## 2026-05-12
 
-- **同步协议 P0**：**`GET /extras/sync/health`**（匿名）、**`GET /extras/sync/bootstrap`**（需登录）；**勿用 `/api/sync/...`**——与 Hydro 内核 **`/api/:op`** 冲突（见 **`docs/SYNC-CADDY-ROUTING.md`**）。Mongo：**`edu_user_sync`**。
+- **同步协议 P0**：**`GET /edu-sync-health`**（匿名）、**`GET /edu-sync-bootstrap`**（未登录 401 JSON）；勿用 **`/api/sync/...`**（与 **`/api/:op`** 冲突）。Mongo：**`edu_user_sync`**。见 **`docs/SYNC-CADDY-ROUTING.md`**。
 - **前端**（在 `hydroforwindows` 仓库）：`syncApi.js`、`AuthContext` 在登录/恢复会话后拉取 bootstrap；登出清理缓存。
 - **安装**：使用本仓库 `scripts/install-hydro-plugin-sync-bootstrap.sh`（在服务器上 clone 本仓库后执行）。
 - **HTTPS**：Caddy 站点由 `:80` 改为 **`oj.antmaker.vip`**，云防火墙放行 **443**；详见 `docs/CADDY-HTTPS.md`。

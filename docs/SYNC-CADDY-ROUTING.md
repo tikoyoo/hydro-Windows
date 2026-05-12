@@ -1,30 +1,36 @@
-# 同步协议 P0：路径说明（`/api/sync/...` 为何无效）
+# 同步协议 P0：路径与 Guest 权限（为何曾出现 `{"url":"/login"}`）
 
-## 根因（Hydro 路由）
+## 1. 不要用 `/api/sync/...`
 
-Hydro 内核会注册 **`/api/:op`**（`@hydrooj/framework` → `applyApiHandler`），其中 **`:op` 仅占路径中的一段**。  
-插件若注册 **`GET /api/sync/health`**，实际路径为三段（`api` / `sync` / `health`），**不匹配** `:op`，请求会落入其它兜底逻辑；匿名 **`Accept: application/json`** 时表现为 **`{"url":"/login?..."}`**，与 **`noCheckPermView`**、`apiRoutes` 白名单**无关**。（此前误判为插件白名单问题。）
+Hydro 内核注册 **`GET /api/:op`**（`@hydrooj/framework` → `applyApiHandler`），**`:op` 只占一段**。  
+**`/api/sync/health`** 为 **三段**路径，**匹配不到**你在插件里写的 Route，会落到其它逻辑。
 
-插件 **`domainUsers`** 能工作是因为 **`/api/domainUsers`** 恰好是两段：**`/api` + `:op`**。
+## 2. 定稿路径（单段、少冲突）
 
-## 正确做法（本仓库已定稿）
+- **`GET /edu-sync-health`** — 匿名（`SyncHealthHandler`）
+- **`GET /edu-sync-bootstrap`** — 未登录返回 **401 JSON**，已登录返回版本（`SyncBootstrapHandler` 内判断 uid）
 
-在插件里使用 **不经 `/api/:op`** 劫持的路径前缀，例如：
+安装脚本与片段见 **`plugin/snippets/syncBootstrap.ts`**、**`scripts/install-hydro-plugin-sync-bootstrap.sh`**。
 
-- **`GET /extras/sync/health`** — 匿名自检（`SyncHealthHandler`，`noCheckPermView = true`）
-- **`GET /extras/sync/bootstrap`** — 需登录，`SyncBootstrapHandler` 内校验 uid
+## 3. Guest 与 `noCheckPermView`
 
-Caddy **`@gateway`（`/api/*` → 8890）不会影响** **`/extras/*`**：二者一般走 **`handle { reverse_proxy 8888 }`**。
+Hydro 在 **`handler/create/http`** 对 Guest 会执行 **`checkPerm(PERM_VIEW)`**（见 `hydrooj` 的 `service/server.ts`）。  
+未通过会抛 **`PrivilegeError`**，Guest 时会被渲染成 **`{"url":"/login?..."}`**。
 
-**无需**再给 `/api/sync` 单独写 Caddy 规则（旧文档中的 `@sync → 8888` 可作历史兼容保留，新版本以 **`/extras/...`** 为准）。
+因此：
 
-对应代码片段：**`plugin/snippets/syncBootstrap.ts`**  
-安装脚本：**`scripts/install-hydro-plugin-sync-bootstrap.sh`**（会把旧 **`/api/sync/…`** **`index.ts`** 文案迁移成 **`/extras/...`**）
+- **`SyncHealthHandler`**：除 class 字段外，在 **构造函数里再设 `this.noCheckPermView = true`**（部分 TS/运行链下更稳）。
+- **`SyncBootstrapHandler`**：同样需要 **`noCheckPermView`**，否则 Guest **进不了 `get()`**，无法返回我们设计的 **401 JSON**；登录校验仍在 **`get()`** 里做。
 
-## 验证
+## 4. Caddy
+
+**`/edu-sync-*` 不在 `/api/*` 里**，一般走默认 **`reverse_proxy → 8888`**，**不必**再为旧 `/api/sync` 写 `@sync`。
+
+## 5. 验证
 
 ```bash
-curl -sS -H 'Accept: application/json' 'https://你的域名/extras/sync/health'
+curl -sS -H 'Accept: application/json' 'http://127.0.0.1:8888/edu-sync-health'
+curl -sS -H 'Accept: application/json' 'https://你的域名/edu-sync-health'
 ```
 
 期望：`{"ok":true,"service":"hydrooj-plugin-sync","serverTime":...}`

@@ -34,7 +34,7 @@ if [[ ! -f "$INDEX_TS" ]]; then
   exit 1
 fi
 
-echo "==> 修补 index.ts（迁移错误路径 import / Route）"
+echo "==> 修补 index.ts（迁移 Route → /edu-sync-*）"
 export INDEX_TS
 python3 <<'PY'
 from pathlib import Path
@@ -45,20 +45,27 @@ text = p.read_text(encoding="utf-8")
 orig = text
 changed = False
 
-def migrate_wrong_paths():
-    """旧版使用 /api/sync/health — Hydro 已占 /api/:op（单段），多段路径进不了插件 Route。"""
+H = "'/edu-sync-health'"
+B = "'/edu-sync-bootstrap'"
+
+
+def migrate_all():
     global text, changed
     reps = (
-        ("'/api/sync/health'", "'/extras/sync/health'"),
-        ('"/api/sync/health"', "'/extras/sync/health'"),
-        ("'/api/sync/bootstrap'", "'/extras/sync/bootstrap'"),
-        ('"/api/sync/bootstrap"', "'/extras/sync/bootstrap'"),
+        ("'/api/sync/health'", H),
+        ('"/api/sync/health"', H),
+        ("'/api/sync/bootstrap'", B),
+        ('"/api/sync/bootstrap"', B),
+        ("'/extras/sync/health'", H),
+        ('"/extras/sync/health"', H),
+        ("'/extras/sync/bootstrap'", B),
+        ('"/extras/sync/bootstrap"', B),
     )
     for a, b in reps:
         if a in text:
             text = text.replace(a, b)
             changed = True
-            print("migrate: %s -> %s" % (a, b))
+            print("migrate route path: %s -> %s" % (a, b))
 
 
 def ensure_import():
@@ -90,8 +97,8 @@ def ensure_routes():
     )
     v = (
         "  ctx.Route('api_domain_users', '/api/domainUsers', DomainUserStatsHandler);\n\n"
-        "  ctx.Route('sync_health', '/extras/sync/health', SyncHealthHandler);\n"
-        "  ctx.Route('sync_bootstrap', '/extras/sync/bootstrap', SyncBootstrapHandler);\n\n"
+        "  ctx.Route('sync_health', '/edu-sync-health', SyncHealthHandler);\n"
+        "  ctx.Route('sync_bootstrap', '/edu-sync-bootstrap', SyncBootstrapHandler);\n\n"
         "  // 添加 CORS 支持"
     )
     if u not in text:
@@ -100,27 +107,28 @@ def ensure_routes():
     changed = True
 
 
-migrate_wrong_paths()
+migrate_all()
 ensure_import()
 
 if ctx_route_mark("sync_health") not in text:
     ensure_routes()
-else:
-    print("ctx.Route(sync_*) 已存在")
 
-if "/extras/sync/health" not in text:
-    raise SystemExit("index.ts 中仍无 /extras/sync/health，请手动检查 Route 段落")
+if "/edu-sync-health" not in text:
+    raise SystemExit("index.ts 仍未出现 /edu-sync-health，请检查 ctx.Route(sync_health, ...)")
 
 if text != orig:
     p.write_text(text, encoding="utf-8")
     print("index.ts 已保存")
 else:
-    print("index.ts 未改动（已达预期路径）")
+    print("index.ts 已达目标路径（或未需改动）")
 PY
 
 echo "==> pm2 restart hydrooj（若进程名不同，请改脚本末尾）"
 pm2 restart hydrooj
 
 echo ""
-echo "完成。匿名自检：curl -sS -H 'Accept: application/json' 'https://<主站>/extras/sync/health'"
-echo '期望 JSON 中含 "ok":true（extras 不走 /api/:op）。'
+echo "完成。匿名自检："
+echo "  curl -sS -H 'Accept: application/json' 'http://127.0.0.1:8888/edu-sync-health'"
+echo "  curl -sS -H 'Accept: application/json' 'https://<主站>/edu-sync-health'"
+echo ""
+echo '期望 JSON：{"ok":true,"service":"hydrooj-plugin-sync",...}'
